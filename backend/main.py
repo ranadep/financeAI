@@ -1,15 +1,18 @@
 # backend/main.py
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List
 from datetime import datetime, timedelta
 from collections import defaultdict
 from pymongo import MongoClient
+from bson import ObjectId
 
 from scraper.stock_scraper import get_stock_data, get_daily_change, get_intraday_sparkline
 from recommender.advisor import recommend_stocks
 from universe.universe import resolve_companies_to_tickers
+
+from insights import router as insights_router
 
 # ✅ MongoDB setup
 client = MongoClient("mongodb://localhost:27017")
@@ -18,6 +21,8 @@ expenses = db["expenses"]      # Collection reference
 
 # ✅ FastAPI app setup
 app = FastAPI()
+app.include_router(insights_router, prefix="/insights")
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -86,9 +91,24 @@ def portfolio_daily(req: PortfolioRequest):
 
 # ✅ Expenses routes
 @app.post("/expenses")
-def add_expense(expense: Expense):
-    expenses.insert_one(expense.dict())
-    return {"message": "Expense added"}
+def add_expense(expense: dict):
+    date = expense.get("date")
+    if not date:
+        raise HTTPException(status_code=400, detail="Missing date")
+
+    # Add the month field from the date
+    expense["month"] = date[:7]
+
+    result = expenses.insert_one(expense)  # <-- use `expenses` not `collection`
+    return {"id": str(result.inserted_id)}
+
+@app.delete("/expenses/{id}")
+def delete_expense(id: str):
+    result = expenses.delete_one({"_id": ObjectId(id)})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Expense not found")
+    return {"message": "Expense deleted"}
+
 
 @app.get("/expenses/{month}")
 def get_expenses(month: str):

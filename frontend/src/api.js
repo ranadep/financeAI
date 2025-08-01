@@ -26,6 +26,9 @@ export const fetchStockData = async (ticker) => {
 };
 
 export const addExpense = async (expense) => {
-  return await axios.post("/expenses", expense);
+  return await axios.post(`${API_BASE}/expenses`, expense);
 };
 
+export const deleteExpense = async (id) => {
+  return axios.delete(`${API_BASE}/expenses/${id}`);
+};
