@@ -13,6 +13,9 @@ from recommender.advisor import recommend_stocks
 from universe.universe import resolve_companies_to_tickers
 
 from insights import router as insights_router
+from routers import agent_api as ai_coach  # adjust if path is different
+from routers import investment as investment_router
+from routers import ai_router
 
 # ✅ MongoDB setup
 client = MongoClient("mongodb://localhost:27017")
@@ -22,8 +25,9 @@ expenses = db["expenses"]      # Collection reference
 # ✅ FastAPI app setup
 app = FastAPI()
 app.include_router(insights_router, prefix="/insights")
-
-
+app.include_router(ai_coach.router)
+app.include_router(investment_router.router)
+app.include_router(ai_router.router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # For development
@@ -136,3 +140,45 @@ def get_expenses(month: str):
         "expenses": all_expenses
     }
 
+# AI Agent routes
+@app.get("/coach-insights/{month}")
+def ai_coach_insights(month: str):
+    expenses = list(collection.find({"month": month}))
+    insights = []
+
+    # Overspending detection (except rent)
+    category_totals = {}
+    for exp in expenses:
+        if exp["category"] != "Rent":
+            category_totals[exp["category"]] = category_totals.get(exp["category"], 0) + float(exp["amount"])
+
+    for cat, total in category_totals.items():
+        if total > 200:  # Threshold
+            insights.append(f"You may be overspending on {cat} (${total:.2f}). Consider reducing this.")
+
+    # Adaptive budgeting
+    budget = 1000
+    total_spent = sum(float(exp["amount"]) for exp in expenses)
+    if total_spent > budget:
+        insights.append("You're currently over your budget. Let's consider reducing next month's budget or cutting back.")
+
+    if not insights:
+        insights.append("Everything looks great this month. Keep it up!")
+
+    return {"insights": insights}
+
+@app.post("/ai/voice-query")
+def voice_query(data: dict):
+    question = data.get("question", "").lower()
+
+    # If question is about personal spending
+    if "budget" in question or "spending" in question:
+        month = datetime.now().strftime("%Y-%m")
+        return {"response": handle_query(question, month)}
+
+    # Otherwise, call open LLM
+    try:
+        response = call_llm(question)  # Custom LLM or OpenAI
+        return {"response": response}
+    except Exception:
+        return {"response": "Sorry, I couldn’t process that."}

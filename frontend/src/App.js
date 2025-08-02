@@ -5,8 +5,11 @@ import StockCard from "./components/StockCard";
 import PortfolioForm from "./components/PortfolioForm";
 import PortfolioList from "./components/PortfolioList";
 import ExpenseTracker from "./components/ExpenseTracker";
-
+import AICoach from "./components/AIcoach";
+import InvestmentAdvisor from "./components/InvestmentAdvisor";
 import { Route, Routes, Link } from 'react-router-dom';
+
+
 
 function App() {
   const [top5, setTop5] = useState([]);
@@ -44,9 +47,11 @@ function App() {
 
   return (
     <div style={{ padding: 24, maxWidth: 900, margin: "0 auto" }}>
-      <nav style={{ marginBottom: 20, borderBottom: "1px solid #ccc", paddingBottom: 10 }}>
+      <nav style={{ marginBottom: 20, borderBottom: "1px solid #ccc", paddingBottom: 10, paddingTop: 10 }}>
         <Link to="/" style={{ marginRight: 12 }}>Home</Link>
-        <Link to="/expenses">Expense Tracker</Link>
+        <Link to="/expenses" style={{ marginRight: 12 }}>Expense Tracker</Link>
+        <Link to="/ai-coach" style={{ marginRight: 12 }}>AI Coach</Link>
+        <Link to="/investment" style={{ marginRight: 12 }}>Investment Advisor</Link>
       </nav>
 
       <Routes>
@@ -79,6 +84,8 @@ function App() {
         />
 
         <Route path="/expenses" element={<ExpenseTracker />} />
+        <Route path="/ai-coach" element={<AICoach />} />
+        <Route path="/investment" element={<InvestmentAdvisor />} /> 
       </Routes>
     </div>
   );
