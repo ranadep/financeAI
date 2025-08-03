@@ -65,3 +65,15 @@ if __name__ == "__main__":
             response = handle_query(query)
             print("🤖 Coach says:", response)
             speak(response)
+
+
+def query_ollama(prompt: str, model="phi") -> str:
+    try:
+        res = requests.post(
+            "http://localhost:11434/api/generate",
+            json={"model": model, "prompt": prompt, "stream": False}
+        )
+        return res.json()["response"]
+    except Exception as e:
+        print("Error querying Ollama:", e)
+        return "Sorry, I couldn't answer that."

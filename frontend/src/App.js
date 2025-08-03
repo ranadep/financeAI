@@ -8,7 +8,7 @@ import ExpenseTracker from "./components/ExpenseTracker";
 import AICoach from "./components/AIcoach";
 import InvestmentAdvisor from "./components/InvestmentAdvisor";
 import { Route, Routes, Link } from 'react-router-dom';
-
+import VoiceAssistant from "./components/VoiceAssistant";
 
 
 function App() {

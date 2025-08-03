@@ -17,6 +17,59 @@ from routers import agent_api as ai_coach  # adjust if path is different
 from routers import investment as investment_router
 from routers import ai_router
 
+import requests
+
+'''
+def query_ollama(prompt: str, model: str = "phi", stream: bool = False) -> str:
+    url = "http://localhost:11434/api/generate"
+    payload = {
+        "model": model,
+        "prompt": prompt,
+        "stream": stream
+    }
+    headers = {"Content-Type": "application/json"}
+
+    try:
+        response = requests.post(url, json=payload, headers=headers)
+        response.raise_for_status()
+        result = response.json()
+        return result.get("response", "No response received.")
+    except Exception as e:
+        print(f"❌ Error querying Ollama: {e}")
+        return "AI failed to generate a response."
+'''
+
+def query_ollama(prompt: str, context: str = "", model: str = "phi", stream: bool = False) -> str:
+    url = "http://localhost:11434/api/generate"
+    
+    full_prompt = f"""
+    You are a personal finance assistant. Use the data provided to answer the user's question.
+    Only give advice based on the user's real financial data if relevant.
+
+    User's Financial Data:
+    {context}
+
+    User's Question:
+    {prompt}
+    """
+
+    payload = {
+        "model": model,
+        "prompt": full_prompt,
+        "stream": stream
+    }
+    headers = {"Content-Type": "application/json"}
+
+    try:
+        response = requests.post(url, json=payload, headers=headers)
+        response.raise_for_status()
+        result = response.json()
+        return result.get("response", "No response received.")
+    except Exception as e:
+        print(f"❌ Error querying Ollama: {e}")
+        return "AI failed to generate a response."
+
+
 # ✅ MongoDB setup
 client = MongoClient("mongodb://localhost:27017")
 db = client["financeAI"]  # ✅ Removed space from name
@@ -143,12 +196,12 @@ def get_expenses(month: str):
 # AI Agent routes
 @app.get("/coach-insights/{month}")
 def ai_coach_insights(month: str):
-    expenses = list(collection.find({"month": month}))
+    expenses_list = list(expenses.find({"month": month}))
     insights = []
 
     # Overspending detection (except rent)
     category_totals = {}
-    for exp in expenses:
+    for exp in expenses_list:
         if exp["category"] != "Rent":
             category_totals[exp["category"]] = category_totals.get(exp["category"], 0) + float(exp["amount"])
 
@@ -158,7 +211,7 @@ def ai_coach_insights(month: str):
 
     # Adaptive budgeting
     budget = 1000
-    total_spent = sum(float(exp["amount"]) for exp in expenses)
+    total_spent = sum(float(exp["amount"]) for exp in expenses_list)
     if total_spent > budget:
         insights.append("You're currently over your budget. Let's consider reducing next month's budget or cutting back.")
 
@@ -167,18 +220,69 @@ def ai_coach_insights(month: str):
 
     return {"insights": insights}
 
+
+def get_insights(month: str) -> list:
+    """Get spending insights for a given month"""
+    expenses_list = list(expenses.find({"month": month}))
+    insights = []
+    
+    if not expenses_list:
+        return ["No spending data available for this month."]
+    
+    # Calculate category totals
+    category_totals = {}
+    for exp in expenses_list:
+        category_totals[exp["category"]] = category_totals.get(exp["category"], 0) + float(exp["amount"])
+    
+    # Generate insights
+    for category, total in category_totals.items():
+        if total > 200:
+            insights.append(f"High spending on {category}: ${total:.2f}")
+    
+    if not insights:
+        insights.append("Spending looks reasonable this month.")
+    
+    return insights
+
+def get_adaptive_budget(month: str) -> dict:
+    """Get adaptive budget recommendations for a given month"""
+    expenses_list = list(expenses.find({"month": month}))
+    
+    if not expenses_list:
+        return {"recommendation": 1000, "averageSpend": 0}
+    
+    total_spent = sum(float(exp["amount"]) for exp in expenses_list)
+    avg_spend = total_spent / len(expenses_list) if expenses_list else 0
+    
+    # Simple budget recommendation
+    recommendation = max(1000, total_spent * 1.1)  # 10% buffer
+    
+    return {
+        "recommendation": round(recommendation, 2),
+        "averageSpend": round(avg_spend, 2)
+    }
+
+
+class VoiceQuery(BaseModel):
+    question: str
+
 @app.post("/ai/voice-query")
-def voice_query(data: dict):
-    question = data.get("question", "").lower()
+def voice_query(data: VoiceQuery):
+    question = data.question
+    month = datetime.now().strftime("%Y-%m")
 
-    # If question is about personal spending
-    if "budget" in question or "spending" in question:
-        month = datetime.now().strftime("%Y-%m")
-        return {"response": handle_query(question, month)}
+    # Fetch your actual spending insights and budget data
+    insights = get_insights(month)  # e.g., returns a list of strings
+    budget = get_adaptive_budget(month)  # e.g., {"recommendation": ..., "averageSpend": ...}
 
-    # Otherwise, call open LLM
-    try:
-        response = call_llm(question)  # Custom LLM or OpenAI
-        return {"response": response}
-    except Exception:
-        return {"response": "Sorry, I couldn’t process that."}
+    context = f"""
+    Insights for {month}:
+    - {"; ".join(insights)}
+
+    Adaptive Budget:
+    - Recommended Budget: ${budget['recommendation']}
+    - Average Spend: ${budget['averageSpend']}
+    """
+    response = query_ollama(prompt=question, context=context)
+    return {"response": response}
+

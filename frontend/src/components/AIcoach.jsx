@@ -1,5 +1,12 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import axios from "axios";
+
+const SpeechRecognition =
+  window.SpeechRecognition || window.webkitSpeechRecognition;
+const recognition = new SpeechRecognition();
+recognition.lang = "en-US";
+recognition.continuous = false;
+recognition.interimResults = false;
 
 function AICoach() {
   const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
@@ -8,46 +15,92 @@ function AICoach() {
   const [voiceInput, setVoiceInput] = useState("");
   const [voiceResponse, setVoiceResponse] = useState("");
   const [listening, setListening] = useState(false);
+  const [statusMsg, setStatusMsg] = useState("");
+  const hasSpokenRef = useRef(false);
+  const timeoutRef = useRef(null);
 
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  const recognition = new SpeechRecognition();
-  recognition.lang = "en-US";
-  recognition.continuous = false;
-  recognition.interimResults = false;
-
-  recognition.onresult = async (event) => {
-    const transcript = event.results[0][0].transcript;
-    setVoiceInput(transcript);
+  const fetchInsights = async () => {
     try {
-      const res = await axios.post("http://localhost:8000/ai/voice-query", { question: transcript });
-      setVoiceResponse(res.data.response);
+      const res = await axios.get(`http://localhost:8000/ai/coach-insights/${month}`);
+      setInsights(res.data.insights || []);
     } catch (err) {
-      setVoiceResponse("Sorry, I couldn't process that.");
+      console.error("Error fetching insights:", err.message);
     }
   };
 
-  recognition.onend = () => {
-    setListening(false);
+  const fetchAdaptiveBudget = async () => {
+    try {
+      const res = await axios.get(`http://localhost:8000/ai/adaptive-budget/${month}`);
+      setAdaptiveBudget(res.data);
+    } catch (err) {
+      console.error("Error fetching budget:", err.message);
+    }
   };
 
   const startListening = () => {
+    if (listening) return; // avoid duplicates
+
     setListening(true);
+    setStatusMsg("🎙️ Listening...");
+
+    hasSpokenRef.current = false;
     recognition.start();
+
+    // Stop after 5 seconds automatically
+    timeoutRef.current = setTimeout(() => {
+      recognition.stop();
+    }, 10000);
   };
 
-  const fetchInsights = async () => {
-    const res = await axios.get(`http://localhost:8000/ai/coach-insights/${month}`);
-    setInsights(res.data.insights || []);
+  recognition.onresult = async (event) => {
+    hasSpokenRef.current = true;
+    clearTimeout(timeoutRef.current);
+
+    const transcript = event.results[0][0].transcript;
+    setVoiceInput(transcript);
+    setStatusMsg("💬 Processing...");
+
+    try {
+      const res = await axios.post("http://localhost:8000/ai/voice-query", {
+        question: transcript,
+      });
+      setVoiceResponse(res.data.response);
+      setStatusMsg("✅ Answered");
+    } catch (err) {
+      setVoiceResponse("Sorry, I couldn't process that.");
+      setStatusMsg("⚠️ Error");
+    }
+
+    setListening(false);
   };
 
-  const fetchAdaptiveBudget = async () => {
-    const res = await axios.get(`http://localhost:8000/ai/adaptive-budget/${month}`);
-    setAdaptiveBudget(res.data);
+  recognition.onerror = (e) => {
+    console.error("Speech recognition error:", e.error);
+    setStatusMsg("⚠️ Mic error");
+    setListening(false);
+    clearTimeout(timeoutRef.current);
+  };
+
+  recognition.onend = () => {
+    clearTimeout(timeoutRef.current);
+    if (!hasSpokenRef.current && listening) {
+      // Restart once if user didn’t speak
+      recognition.start();
+      timeoutRef.current = setTimeout(() => {
+        recognition.stop();
+      }, 5000);
+    } else {
+      setListening(false);
+    }
   };
 
   useEffect(() => {
     fetchInsights();
     fetchAdaptiveBudget();
+    return () => {
+      clearTimeout(timeoutRef.current);
+      recognition.abort();
+    };
   }, [month]);
 
   return (
@@ -66,10 +119,17 @@ function AICoach() {
 
       <button
         onClick={startListening}
-        className="bg-blue-500 text-white px-4 py-2 rounded"
+        className={`px-4 py-2 rounded ${
+          listening ? "bg-red-600" : "bg-blue-500"
+        } text-white`}
+        disabled={listening}
       >
-        🎤 Ask a Question
+        🎤 {listening ? "Listening..." : "Ask a Question"}
       </button>
+
+      {statusMsg && (
+        <div className="text-sm text-gray-600 italic mt-1">{statusMsg}</div>
+      )}
 
       {voiceInput && (
         <div className="mt-4 p-4 bg-gray-100 rounded">
